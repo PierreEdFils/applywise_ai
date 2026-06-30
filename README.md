@@ -185,3 +185,11 @@ Pasting the following JSON payloads into the playground input box to test differ
    ```
 
 ⚠️ **NEVER push `.env` to GitHub. Your API key will be exposed publicly.**
+
+## Assets
+
+### Project Cover Banner
+![ApplyWise AI Cover Banner](assets/cover_page_banner.png)
+
+### Agent Workflow Diagram
+![ApplyWise AI Workflow Diagram](assets/architecture_diagram.png)
