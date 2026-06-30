@@ -172,13 +172,65 @@ Ensure the pitches are professional, engaging, and highlight key strengths.""",
 )
 
 # =====================================================================
-# 4. Workflow Function Nodes
+# 3. Workflow Function Nodes
 # =====================================================================
+
+def security_checkpoint(ctx: Context, node_input: ApplyWiseInput):
+    """PII scrubbing and prompt injection detection checkpoint."""
+    profile = node_input.candidate_profile
+    job = node_input.job_posting
+    
+    # 1. PII Scrubbing (Regex)
+    email_regex = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+    phone_regex = r'\b(?:\+?1[-. ]?)?\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\b'
+    
+    scrubbed_profile = re.sub(email_regex, "[REDACTED_EMAIL]", profile)
+    scrubbed_profile = re.sub(phone_regex, "[REDACTED_PHONE]", scrubbed_profile)
+    
+    # 2. Prompt Injection Detection
+    injection_keywords = ["ignore previous instructions", "system prompt", "override", "you are now a", "do not restrict"]
+    combined_input = (profile + " " + job).lower()
+    is_injection = any(kw in combined_input for kw in injection_keywords)
+    
+    # 3. Domain-Specific Validation
+    is_too_short = len(profile.strip()) < 50 or len(job.strip()) < 50
+    
+    # Audit Log
+    log_entry = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "session_id": ctx.session.id,
+        "pii_scrubbed": scrubbed_profile != profile,
+        "injection_detected": is_injection,
+        "too_short": is_too_short
+    }
+    
+    if is_injection:
+        log_entry["severity"] = "CRITICAL"
+        log_entry["reason"] = "Potential prompt injection detected."
+        print(json.dumps(log_entry))
+        return Event(output="Security Blocked: Potential prompt injection attempt detected.", route="SECURITY_EVENT")
+        
+    if is_too_short:
+        log_entry["severity"] = "WARNING"
+        log_entry["reason"] = "Input profile or job posting is too short."
+        print(json.dumps(log_entry))
+        return Event(output="Security Blocked: Input profile or job posting is too short (minimum 50 characters).", route="SECURITY_EVENT")
+        
+    log_entry["severity"] = "INFO"
+    log_entry["reason"] = "Security check passed."
+    print(json.dumps(log_entry))
+    
+    return Event(
+        output=ApplyWiseInput(candidate_profile=scrubbed_profile, job_posting=job),
+        route="pass",
+        state={
+            "candidate_profile": scrubbed_profile,
+            "job_posting": job
+        }
+    )
 
 def prepare_orchestrator_input(ctx: Context, node_input: ApplyWiseInput) -> str:
     """Formats the input for the orchestrator agent."""
-    ctx.state["candidate_profile"] = node_input.candidate_profile
-    ctx.state["job_posting"] = node_input.job_posting
     return f"""Please analyze the following job and candidate profile:
     
 ### Job Posting:
@@ -342,8 +394,15 @@ def generate_final_package(ctx: Context, node_input: InterviewPrepOutput):
         output=package
     )
 
+def security_error_node(node_input: str):
+    """Outputs a security error message and terminates."""
+    yield Event(
+        content=types.Content(role='model', parts=[types.Part.from_text(text=f"⚠️ **Security Blocked:** {node_input}")]),
+        output={"status": "blocked", "reason": node_input}
+    )
+
 # =====================================================================
-# 4. Workflow Definition (ADK 2.0 Graph without Security Node)
+# 4. Workflow Definition (ADK 2.0 Graph)
 # =====================================================================
 
 applywise_workflow = Workflow(
@@ -352,28 +411,34 @@ applywise_workflow = Workflow(
     input_schema=ApplyWiseInput,
     output_schema=FinalApplicationPackage,
     edges=[
-        # START routes directly to prepare_orchestrator_input
-        (START, prepare_orchestrator_input),
+        # 1. Security Check
+        (START, security_checkpoint),
         
-        # Orchestrator Analysis (Job + Fit via AgentTools)
+        # 2. Routing on security checkpoint
+        (security_checkpoint, {
+            "SECURITY_EVENT": security_error_node,
+            "pass": prepare_orchestrator_input,
+        }),
+        
+        # 3. Orchestrator Analysis (Job + Fit via AgentTools)
         (prepare_orchestrator_input, orchestrator),
         
-        # Resume Tailoring
+        # 4. Resume Tailoring
         (orchestrator, prepare_resume_tailorer_input),
         (prepare_resume_tailorer_input, resume_tailorer),
         
-        # Cover Letter Generation
+        # 5. Cover Letter Generation
         (resume_tailorer, prepare_cover_letter_input),
         (prepare_cover_letter_input, cover_letter_generator),
         
-        # Human-in-the-Loop Review
+        # 6. Human-in-the-Loop Review
         (cover_letter_generator, review_application),
         
-        # Interview Coaching
+        # 7. Interview Coaching
         (review_application, prepare_interview_coach_input),
         (prepare_interview_coach_input, interview_coach),
         
-        # Compile Final Package
+        # 8. Compile Final Package
         (interview_coach, generate_final_package)
     ]
 )
