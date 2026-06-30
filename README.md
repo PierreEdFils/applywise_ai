@@ -193,3 +193,8 @@ Pasting the following JSON payloads into the playground input box to test differ
 
 ### Agent Workflow Diagram
 ![ApplyWise AI Workflow Diagram](assets/architecture_diagram.png)
+
+## Demo Script
+
+A spoken presentation script for demonstrating the agent is available in [DEMO_SCRIPT.txt](DEMO_SCRIPT.txt).
+
