@@ -71,7 +71,29 @@ class FinalApplicationPackage(BaseModel):
     french_elevator_pitch: str
 
 # =====================================================================
-# 2. Specialized Sub-Agents (No MCP Tools yet)
+# 2. MCP Server Configuration & Initialization
+# =====================================================================
+
+import os
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+from mcp import StdioServerParameters
+
+# Resolve absolute path to mcp_server.py
+current_dir = os.path.dirname(os.path.abspath(__file__))
+mcp_server_path = os.path.join(current_dir, "mcp_server.py")
+
+mcp_tools = McpToolset(
+    connection_params=StdioConnectionParams(
+        server_params=StdioServerParameters(
+            command="uv",
+            args=["run", "python", mcp_server_path],
+        ),
+    ),
+)
+
+# =====================================================================
+# 3. Specialized Sub-Agents
 # =====================================================================
 
 job_analyzer = LlmAgent(
@@ -79,7 +101,9 @@ job_analyzer = LlmAgent(
     model=config.model,
     instruction="""You are an expert Job Analyzer.
 Analyze the provided job posting. Extract the job title, company name, key responsibilities, required skills, nice-to-have skills, and cultural insights.
+You can use the `fetch_job_posting` tool if the user provides a URL instead of raw text.
 Ensure your response strictly adheres to the requested output schema.""",
+    tools=[mcp_tools],
     output_schema=JobAnalysis,
     output_key="job_analysis",
     description="Analyzes a job posting to extract key details and requirements."
@@ -117,7 +141,9 @@ Using the candidate's profile, job analysis, and fit analysis, generate:
 1. A strong, keyword-rich resume headline.
 2. A tailored professional summary paragraph.
 3. 3-5 customized accomplishment bullet points matching the job's key requirements.
+You can search Canadian career resources using the `search_canadian_career_resources` tool to ensure standards are met.
 Highlight the candidate's matching strengths and address any gaps professionally.""",
+    tools=[mcp_tools],
     output_schema=ResumeTailorOutput,
     output_key="tailored_resume",
 )
@@ -146,7 +172,7 @@ Ensure the pitches are professional, engaging, and highlight key strengths.""",
 )
 
 # =====================================================================
-# 3. Workflow Function Nodes
+# 4. Workflow Function Nodes
 # =====================================================================
 
 def prepare_orchestrator_input(ctx: Context, node_input: ApplyWiseInput) -> str:
